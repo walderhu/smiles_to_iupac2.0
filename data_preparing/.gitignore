@@ -1,0 +1,14 @@
+__*
+!__init__.py
+!__main__.py
+
+
+.env
+.vscode/
+*.log
+*.csv
+*.sublime-project
+*.sublime-workspace
+
+*.model
+*.vocab

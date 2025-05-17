@@ -1,0 +1,22 @@
+*
+!*/
+
+!*.py
+!*.yml
+!*.sh
+!*.rst
+!*.md
+!LICENSE
+!*/__init__.py
+
+!data.csv
+!./model/data.csv
+# !*.csv
+!*.txt
+!.gitignore
+!*.md
+!*.toml
+!*.sh
+!*.rst
+!Makefile
+!*.ipynb

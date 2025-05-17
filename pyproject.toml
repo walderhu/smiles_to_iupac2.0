@@ -1,0 +1,38 @@
+[tool.poetry]
+name = 'SMILES_to_IUPAC'
+version = '1.0'
+description = 'Library for converting SMILES Presentation in IUPAC'
+authors = ['Lipatov Denis <lipatov.denis163@gmail.com>']
+license = 'LGPLv3'
+readme = 'README.rst'
+homepage = 'https://github.com/walderhu/SMILES_to_IUPAC'
+include = [{path = 'model/*/*.pyd', format = 'wheel'}]
+
+[tool.poetry.dependencies]
+python = '^3.8'
+numpy = '^1.23.3'
+chytorch-rxnmap = {version = '^1.4', optional = true}
+rdkit = {version = '^2023.9', optional = true}
+
+[tool.poetry.extras]
+mapping = ['chytorch-rxnmap']
+rdkit = ['rdkit']
+
+[tool.poetry.group.dev]
+optional = true
+
+[tool.poetry.group.dev.dependencies]
+pytest = '^7.4.3'
+
+[tool.poetry.group.docs.dependencies]
+rdkit = '^2023.9.1'
+ipython = '^8.12.1'
+torch = "2.0.0"
+chython = "^1.68"
+pandas = "^2.1.2"
+chytorch = "^1.62"
+chytorch-rxnmap = "^1.4"
+
+[build-system]
+requires = ['poetry-core', 'setuptools', 'cython>=3.0.5']
+build-backend = 'poetry.core.masonry.api'

@@ -1,0 +1,26 @@
+> <PUBCHEM_IUPAC_OPENEYE_NAME>
+3-acetoxy-4-(trimethylammonio)butanoate
+
+> <PUBCHEM_IUPAC_CAS_NAME>
+3-acetyloxy-4-(trimethylammonio)butanoate
+
+> <PUBCHEM_IUPAC_NAME_MARKUP>
+3-acetyloxy-4-(trimethylazaniumyl)butanoate
+
+> <PUBCHEM_IUPAC_NAME>
+3-acetyloxy-4-(trimethylazaniumyl)butanoate
+
+> <PUBCHEM_IUPAC_SYSTEMATIC_NAME>
+3-acetyloxy-4-(trimethylazaniumyl)butanoate
+
+> <PUBCHEM_IUPAC_TRADITIONAL_NAME>
+3-acetoxy-4-(trimethylammonio)butyrate
+
+> <PUBCHEM_SMILES>
+CC(=O)OC(CC(=O)[O-])C[N+](C)(C)C
+
+> <PUBCHEM_OPENEYE_CAN_SMILES>
+CC(=O)OC(CC(=O)[O-])C[N+](C)(C)C
+
+> <PUBCHEM_OPENEYE_ISO_SMILES>
+CC(=O)OC(CC(=O)[O-])C[N+](C)(C)C
