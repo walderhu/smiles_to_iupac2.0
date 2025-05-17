@@ -1,22 +1,46 @@
+import json
 import logging
 import os
-import random
-import warnings
-from io import StringIO
-from os.path import exists, join
+from os.path import basename, exists, join
 
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
-import RMolEncoder as rme
-import torch
-import torch.nn as nn
-from lithium import send_msg, send_photo
-from torch.cuda.amp import GradScaler
+from _model import batch_reader
 
-from _model import ChemLM, Loss, batch_reader, make_fix_len_collate, tokenize
+png_dirname = '__media__'
+os.makedirs(png_dirname, exist_ok=True)
 
-dirname = '.'
+data_dirname = '/home/lipatovdn/__data__'
+log_filename = 'klasterisation.log'
+logging.basicConfig(filename=log_filename, level=logging.INFO, format='%(message)s')
 
-files = [join(dirname, f) for f in os.listdir(dirname) if f.endswith('.csv') and not f.startswith('_')]
-print(files)
+
+meta = 'data-info.json'
+if exists(meta):
+    with open(meta, 'r') as f:
+        files_dict = json.load(f)
+else:
+    files = [join(data_dirname, f) for f in os.listdir(data_dirname)
+             if f.endswith('.csv') and not f.startswith('_')]
+    files_dict = {file: False for file in files}
+
+
+def medianame(file, num_batch):
+    base: str = basename(file)
+    res = base.replace('.csv', '.png')
+    res = f"{'clusters_'}{num_batch}_of_{res}"
+    res = join(png_dirname, res)
+    return res
+
+
+files = [file for f in os.listdir(data_dirname)
+         if f.endswith('.csv') and
+         not f.startswith('_') and
+         files_dict[file := join(data_dirname, f)] is False][:3]
+
+valid_repr = []
+for file in files:
+    for num_batch, batch in enumerate(batch_reader(join(data_dirname, file), batch_size=2e5), start=1):
+        pngfilename = medianame(file, num_batch)
+        files_dict[file] = True
+
+with open(meta, 'w') as f:
+    json.dump(files_dict, f)

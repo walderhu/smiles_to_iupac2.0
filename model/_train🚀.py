@@ -28,10 +28,10 @@ if not exists(pretrained_path):
     raise FileNotFoundError(f"Предобученный файл не найден по пути: {pretrained_path}")
 
 log_filename = 'training.log'
-if exists(log_filename):  # Обнуление файла
+logging.basicConfig(filename=log_filename, level=logging.INFO, format='%(message)s')
+if exists(log_filename):
     with open(log_filename, 'w'):
         pass
-logging.basicConfig(filename=log_filename, level=logging.INFO, format='%(message)s')
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 warnings.filterwarnings("ignore", category=FutureWarning)
