@@ -1,22 +1,25 @@
+# Игнорировать всё
 *
 !*/
 
+# Разрешить конкретные файлы/расширения (глобально)
 !*.py
 !*.yml
 !*.sh
 !*.rst
 !*.md
+!*.txt
+!*.toml
+!*.ipynb
+!*.csv
+
+# Разрешить специфичные файлы (полные пути)
 !LICENSE
+!.gitignore
+!Makefile
+
+# Разрешить __init__.py в любых подпапках
 !*/__init__.py
 
-!data.csv
-!./model/data.csv
-# !*.csv
-!*.txt
-!.gitignore
-!*.md
-!*.toml
-!*.sh
-!*.rst
-!Makefile
-!*.ipynb
+# Явно разрешить data.csv в model/
+!/model/data.csv
