@@ -16,11 +16,16 @@ from torch.cuda.amp import GradScaler
 
 from _model import ChemLM, Loss, batch_reader, make_fix_len_collate, tokenize
 
-send_msg(f'{__file__}: Рассчеты начались', delete_after=5)
 # Мета настройка
+send_msg(f'{__file__}: Рассчеты начались', delete_after=5)
+
 dirname = '__train__'
 if not exists(dirname):
     raise FileNotFoundError(f"Нет папки с обучающей выборкой по пути: {dirname}")
+
+pretrained_path = "pretrained_encoder.pth"
+if not exists(pretrained_path):
+    raise FileNotFoundError(f"Предобученный файл не найден по пути: {pretrained_path}")
 
 log_filename = 'training.log'
 if exists(log_filename):  # Обнуление файла
@@ -30,10 +35,6 @@ logging.basicConfig(filename=log_filename, level=logging.INFO, format='%(message
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 warnings.filterwarnings("ignore", category=FutureWarning)
-
-pretrained_path = "pretrained_encoder.pth"
-if not exists(pretrained_path):
-    raise FileNotFoundError(f"Предобученный файл не найден по пути: {pretrained_path}")
 
 
 class Trainer:
@@ -127,7 +128,7 @@ def train(patience=10):
     for epoch in range(1, 100):
         random.shuffle(files)
         for file in files:
-            for num_batch, batch in enumerate(batch_reader(file, batch_size=256)): # 1e4
+            for num_batch, batch in enumerate(batch_reader(file, batch_size=1e4)):  # 1e4
                 try:
                     df = pd.read_csv(StringIO(batch), delimiter=';', encoding='utf-8').dropna()
                 except Exception as exc:

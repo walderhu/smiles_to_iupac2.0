@@ -18,6 +18,14 @@ test_dirname = '__train__'
 if not exists(test_dirname):
     raise FileNotFoundError(f"Нет папки с тестовой выборкой по пути: {test_dirname}")
 
+pretrained_path = "pretrained_encoder.pth"
+if not exists(pretrained_path):
+    raise FileNotFoundError(f"Предобученный файл енкодера не найден по пути: {pretrained_path}")
+
+filename = "model.pth"
+if (filename is None) or (not exists(filename)):
+    raise FileNotFoundError(f"Предобученный файл модели не найден по пути: {filename}")
+
 predicted_dirname = '__predicted__'
 os.makedirs(predicted_dirname, exist_ok=True)
 
@@ -125,14 +133,6 @@ class TestModel:
 
 
 def main():
-    pretrained_path = "pretrained_encoder.pth"
-    filename = "model.pth"
-
-    if not exists(pretrained_path):
-        raise FileNotFoundError(f"Предобученный файл енкодера не найден по пути: {pretrained_path}")
-    if (filename is None) or (not exists(filename)):
-        raise FileNotFoundError(f"Предобученный файл модели не найден по пути: {filename}")
-
     model = ChemLM(chem_encoder_params=dict(d_model=512, n_in_head=8, num_in_layers=8, shared_weights=True),
                    decoder_params=dict(d_model=512, nhead=8, dim_feedforward=4 * 512, dropout=0.1,
                                        activation=nn.functional.gelu, batch_first=True, norm_first=True, bias=True),
@@ -145,9 +145,7 @@ def main():
         test_df = pd.read_csv(file, delimiter=';', encoding='utf-8', nrows=10).dropna()
         tester = TestModel(model)
         tester.run_evaluation(test_df)
-
         filename = join(predicted_dirname, f'predicted_{basename(file)}')
-        print(filename)
         tester.run_tests(test_df, filename)
 
 
