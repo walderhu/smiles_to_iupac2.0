@@ -111,8 +111,9 @@ class Klaster:
 
 def csv_format(num_line):
     return dict(index=False, encoding='utf-8', mode='w' if num_line == 1 else 'a',
-        header=(num_line == 1), sep=';', escapechar='\\', quoting=QUOTE_ALL, quotechar='"')
-    
+                header=(num_line == 1), sep=';', escapechar='\\', quoting=QUOTE_ALL, quotechar='"')
+
+
 def main():
     files = [f for f in os.listdir(dirname) if f.endswith('.csv') and not f.startswith('_')]
     valid_repr = []
@@ -126,14 +127,10 @@ def main():
 
             test_molecules_df.to_csv(test_label(file), **csv_format(num_line))
             train_molecules_df.to_csv(train_label(file), **csv_format(num_line))
-            
+
     valid_repr = pd.concat(valid_repr, ignore_index=True)
     valid_repr.to_csv(f'_validation.csv', **csv_format(num_line=1))
 
 
-
-
-
 if __name__ == '__main__':
     main()
-

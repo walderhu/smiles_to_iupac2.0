@@ -1,7 +1,7 @@
+import difflib
 import os
 from csv import QUOTE_ALL
-from os.path import exists, join, basename
-import difflib
+from os.path import basename, exists, join
 
 import pandas as pd
 import RMolEncoder as rme
@@ -13,8 +13,14 @@ from tqdm import tqdm
 from _model import ChemLM, Loss, make_fix_len_collate, tokenize
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+test_dirname = '__train__'
+if not exists(test_dirname):
+    raise FileNotFoundError(f"Нет папки с тестовой выборкой по пути: {test_dirname}")
+
 predicted_dirname = '__predicted__'
 os.makedirs(predicted_dirname, exist_ok=True)
+
 
 class TestModel:
     def __init__(self, model):
@@ -102,12 +108,12 @@ class TestModel:
             pred = self.predict_iupac(row['SMILES'])
             seq = difflib.SequenceMatcher(None, pred, row['IUPAC Name'])
             results.append({
-                            'Correct': pred == row['IUPAC Name'],
-                            'Accuracy' : f"{seq.ratio():.2f}",
-                            'SMILES': row['SMILES'],
-                            'True IUPAC': row['IUPAC Name'],
-                            'Predicted IUPAC': pred
-                            })
+                'Correct': pred == row['IUPAC Name'],
+                'Accuracy': f"{seq.ratio():.2f}",
+                'SMILES': row['SMILES'],
+                'True IUPAC': row['IUPAC Name'],
+                'Predicted IUPAC': pred
+            })
 
         results_df = pd.DataFrame(results)
         results_df.to_csv(filename, index=False, sep=';', escapechar='\\',
@@ -134,14 +140,12 @@ def main():
     model.load_state_dict(torch.load(filename, map_location=device))
     model.to(device)
     model.eval()
-
-    dirname = '__test__'
-    test_data_files = [join(dirname, file) for file in os.listdir(dirname)]
+    test_data_files = [join(test_dirname, file) for file in os.listdir(test_dirname)]
     for file in test_data_files:
         test_df = pd.read_csv(file, delimiter=';', encoding='utf-8', nrows=10).dropna()
         tester = TestModel(model)
         tester.run_evaluation(test_df)
-        
+
         filename = join(predicted_dirname, f'predicted_{basename(file)}')
         print(filename)
         tester.run_tests(test_df, filename)

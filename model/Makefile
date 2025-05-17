@@ -1,12 +1,12 @@
 
-TRASH := __pycache__ __test__ __train__ __predicted__
+TRASH := __pycache__ __predicted__
 FILES := $(shell find . -maxdepth 1 -type f -name "*.py")
 
 .PHONY: build clean
 .DELETE_ON_ERROR: 
 
 all:
-	@echo ${FILES}
+	@python3 "/home/lipatovdn/smiles_to_iupac2.0/model/_train🚀.py"
 
 %:
 	@python3 "_$@.py"
