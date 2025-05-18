@@ -1,4 +1,4 @@
-from typing import Sequence, Union, NamedTuple, Optional
+from typing import Sequence, Union, Optional
 from enum import Enum
 import itertools
 
@@ -9,6 +9,7 @@ from chytorch.utils.data.molecule.encoder import MoleculeDataset
 from chytorch.utils.data.reaction.encoder import ReactionEncoderDataPoint
 from chytorch.utils.data import collate_encoded_reactions
 
+from chython.exceptions import IncorrectSmiles
 
 
 class ROLE(Enum):
@@ -36,7 +37,20 @@ class RxnMolDataset(torch.utils.data.Dataset):
         :param max_distance: set distances greater than cutoff to cutoff value
         :param max_neighbors: set neighbors count greater than cutoff to cutoff value
         """
-        self.data = list(map(lambda x: (smiles(x) if isinstance(x, str) else x), data))
+        # self.data = list(map(lambda x: (smiles(x) if isinstance(x, str) else x), data))
+        ##
+        self.data = []
+        for x in data:
+            if isinstance(x, str):
+                try:
+                    self.data.append(smiles(x))
+                except IncorrectSmiles:
+                    pass
+                except Exception as exc:
+                    print(exc)
+            else:
+                self.data.append(x)
+        ##
         self.target = target
         self.max_distance = max_distance
         self.max_neighbors = max_neighbors
