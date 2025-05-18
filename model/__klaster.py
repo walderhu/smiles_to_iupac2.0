@@ -169,9 +169,8 @@ def main():
                 test_molecules_df.to_csv(test_label(base), **csv_format(num_batch))
                 train_molecules_df.to_csv(train_label(base), **csv_format(num_batch))
                 valid_molecules_df.to_csv(val_label(base), **csv_format(num_batch))
-
-                pngfilename = medianame(base, num_batch)
-                klaster.draw(filename=pngfilename)
+                # pngfilename = medianame(base, num_batch)
+                # klaster.draw(filename=pngfilename)
             except Exception as exc:
                 exc = log_err_msg_wrap(exc)
                 msg = f"""
@@ -181,10 +180,11 @@ def main():
                 logging.error(msg)
 
         files_dict[file] = True
+        
+        with open(meta, 'w') as f:
+            json.dump(files_dict, f)
+            
         logging.info(f'{i} файл обработан, {basename(file)}')
-
-    with open(meta, 'w') as f:
-        json.dump(files_dict, f)
 
 
 if __name__ == '__main__':
