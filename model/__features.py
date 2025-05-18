@@ -7,7 +7,7 @@ from _model import batch_reader
 import logging
 
 
-def log_err_wrap(exc, min_d=85, max_d=105) -> None: 
+def log_err_msg_wrap(exc, min_d=85, max_d=105) -> None: 
     message = str(exc) 
     wrapped_message = ""
     current_line = ""
@@ -24,7 +24,7 @@ def log_err_wrap(exc, min_d=85, max_d=105) -> None:
                 wrapped_message += word + "\n" 
                 current_line = ""
     wrapped_message += current_line.rstrip()
-    logging.error(wrapped_message)
+    return wrapped_message
 
 
 def max_len_file(file) -> int:

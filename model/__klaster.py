@@ -15,7 +15,7 @@ from sklearn.cluster import MiniBatchKMeans
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from sklearn.preprocessing import StandardScaler
-
+from __features import log_err_msg_wrap
 from _model import batch_reader
 
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -173,11 +173,12 @@ def main():
                 pngfilename = medianame(base, num_batch)
                 klaster.draw(filename=pngfilename)
             except Exception as exc:
+                exc = log_err_msg_wrap(exc)
                 msg = f"""
                 {file=}: {num_batch=}, {batch=}
                 {exc=}
                 """
-                send_msg(msg)
+                logging.error(msg)
 
         files_dict[file] = True
         logging.info(f'{i} файл обработан, {basename(file)}')
