@@ -7,7 +7,7 @@ from io import StringIO
 from os.path import exists, join, basename
 from __features import err_wrap
 from tqdm import tqdm
-
+from typing import *
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -59,7 +59,7 @@ class Trainer:
         self.accum_step = 0
         self.accum_losses = []
 
-    def train(self, df: pd.DataFrame):
+    def train(self, df: pd.DataFrame) -> float:
         MAX_SEQ_LEN = df["IUPAC Name"].apply(len).max()
         DS_SEQ_LEN = MAX_SEQ_LEN + 3
         smis = list(df['SMILES'])
@@ -140,56 +140,71 @@ class Trainer:
 
 
                 
-def train(patience=10, batch_size=256, num_epoch=10):
+def train_epoch(files: List[str], batch_size: int, epoch: int, trainer: Trainer):
+    losses = []
+    random.shuffle(files)
+    for file in files:
+        with tqdm(total=count_lines(file), desc=meta(), dynamic_ncols=True) as tq:
+            for num_batch, batch in enumerate(batch_reader(file, batch_size), start=1):
+                try:
+                    df: pd.DataFrame = pd.read_csv(StringIO(batch), delimiter=';', encoding='utf-8').dropna()
+                except Exception as exc:
+                    logging.error(exc)
+                    continue
+
+                loss: float = trainer.train(df)
+                losses.append(loss)
+                logging.info(f"Epoch {epoch}, File: {basename(file)}, Batch {num_batch}, Loss: {loss:.4f}, MeanLoss: {mean(losses):.4f}")
+                tq.set_description(meta())
+                tq.update(batch_size)
+    return losses
+
+
+def validate_and_save(model: rme, trainer: Trainer, validation_data: pd.DataFrame, epoch: int, \
+                best_val_loss: float, patience: int, epochs_without_improvement: int) -> Tuple[int, float]:
+    val_loss = trainer.validate(validation_data)
+    logging.info(f"Epoch {epoch}, Validation loss: {val_loss:.4f}")
+    if val_loss < best_val_loss:
+        best_val_loss = val_loss
+        epochs_without_improvement = 0
+        torch.save(model.state_dict(), "model.pth")
+        logging.info(f"Epoch {epoch}: New best validation loss: {best_val_loss:.4f}")
+    else:
+        epochs_without_improvement += 1
+        if epochs_without_improvement >= patience:
+            logging.info(f"Early stopping triggered! No improvement for {patience} epochs.")
+    return best_val_loss, epochs_without_improvement
+
+
+def train(patience:int=3, batch_size:int=256, num_epoch:int=10, \
+                pretrained_path:Optional[str]=None, dirname:Optional[str]=None) -> None:  
+    
     model = ChemLM(chem_encoder_params=dict(d_model=512, n_in_head=8, num_in_layers=8, shared_weights=True),
                    decoder_params=dict(d_model=512, nhead=8, dim_feedforward=4 * 512, dropout=0.1,
                                        activation=nn.functional.gelu, batch_first=True, norm_first=True, bias=True),
                    num_layers=4, vocab_size=128, chem_encoder_pretrained_path=pretrained_path)
     model.train()
-    files = [join(dirname, 'train_Compound_000000001_000500000.csv')]
-    validation_data = pd.read_csv(join('__val__', 'validation_Compound_000000001_000500000.csv'), 
+    files = [join(dirname, 'train_Compound_000000001_000500000.csv')] 
+    validation_data: pd.DataFrame = pd.read_csv(join('__val__', 'validation_Compound_000000001_000500000.csv'),
                                  delimiter=';', encoding='utf-8').dropna()
-    loss = float('inf')
+    threshold = 0.1
     best_val_loss = float('inf')
+    past_loss = float('inf')
     epochs_without_improvement = 0
+    trainer = Trainer(model) 
     for epoch in range(1, num_epoch):
-        losses = []
-        random.shuffle(files)
-        trainer = Trainer(model)
-        for file in files:
-            meta = lambda: f"{cpu()}, {ram()}, {gpu()}"
-            with tqdm(total=count_lines(file), desc=meta(), dynamic_ncols=True) as tq: 
-                for num_batch, batch in enumerate(batch_reader(file, batch_size), start=1):  
-                    try:
-                        df = pd.read_csv(StringIO(batch), delimiter=';', encoding='utf-8').dropna()
-                    except Exception as exc:
-                        logging.error(exc)
-                        continue
+        losses = train_epoch(model, files, batch_size, epoch, trainer)
+        mean_loss = mean(losses)
+        if mean_loss < min(threshold, past_loss):
+            past_loss = mean_loss
+            torch.save(model.state_dict(), f"model_{epoch}.pth") 
+            logging.info("BETTER!")
 
-                    loss = trainer.train(df)
-                    losses.append(loss)
-                    logging.info(f"Epoch {epoch}, File: {basename(file)}, Batch {num_batch}, Loss: {loss:.4f}, MeanLoss: {mean(losses):.4f}")
-                    tq.set_description(meta())
-                    tq.update(batch_size) 
-
-        if mean(losses) < 0.1:
-            logging.info(f"DONE")
-            torch.save(model.state_dict(), "model.pth")
+        best_val_loss, epochs_without_improvement = validate_and_save(model, trainer, validation_data, \
+                                            epoch, best_val_loss, patience, epochs_without_improvement)
+        if (epochs_without_improvement >= patience) or (best_val_loss < threshold):
+            torch.save(model.state_dict(), f"model_{epoch}.pth") 
             break
-
-        val_loss = trainer.validate(validation_data)
-        logging.info(f"Epoch {epoch}, Validation loss: {val_loss:.4f}")
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            epochs_without_improvement = 0
-            torch.save(model.state_dict(), "model.pth")
-            logging.info(f"Epoch {epoch}: New best validation loss: {best_val_loss:.4f}")
-        else:
-            epochs_without_improvement += 1
-            if epochs_without_improvement >= patience:
-                logging.info(f"Early stopping triggered! No improvement for {patience} epochs.")
-                break
-
         trainer.send_result(telegram=True, local_save=False)
 
 
@@ -197,7 +212,7 @@ if __name__ == '__main__':
     torch.cuda.empty_cache()
     try:
         os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
-        best_model_state, filename = train(), "model.pth"
+        best_model_state, filename = train(pretrained_path=pretrained_path, dirname=dirname), "model.pth"
         send_msg(f'{__file__}: Рассчеты успешно завершены', delete_after=5)
     except Exception as exc:
         base = basename(__file__)
