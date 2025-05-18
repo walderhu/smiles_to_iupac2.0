@@ -24,8 +24,8 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 png_dirname = '__media__'
 os.makedirs(png_dirname, exist_ok=True)
 
-# data_dirname = '/home/lipatovdn/__data__'
-data_dirname = '.'
+data_dirname = '/home/lipatovdn/__data__'
+# data_dirname = '.'
 log_filename = 'klasterisation.log'
 logging.basicConfig(filename=log_filename, level=logging.INFO, format='%(message)s')
 
@@ -180,7 +180,7 @@ def main():
                 send_msg(msg)
 
         files_dict[file] = True
-        send_msg(f'{i} файл обработан, {basename(file)}')
+        logging.info(f'{i} файл обработан, {basename(file)}')
 
     with open(meta, 'w') as f:
         json.dump(files_dict, f)
