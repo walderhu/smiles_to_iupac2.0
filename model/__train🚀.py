@@ -7,7 +7,7 @@ from io import StringIO
 from os.path import exists, join, basename
 from __features import err_wrap
 from tqdm import tqdm
-
+from typing import *
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -52,14 +52,32 @@ class Trainer:
         self.optim = torch.optim.AdamW(self.model.parameters(), lr=0.001, weight_decay=0.01)
         
         # Настройки для аккумуляции градиентов
-        self.virtual_batch_size = 256  # Желаемый виртуальный размер батча
-        self.batch_size = 32           # Реальный размер батча, который помещается в память 🔥🔥🔥
+        self.virtual_batch_size = 256
+        self.batch_size = 32
         self.grad_accum = self.virtual_batch_size // self.batch_size
         assert self.virtual_batch_size % self.batch_size == 0, "virtual_batch_size must be divisible by batch_size"
         self.accum_step = 0
         self.accum_losses = []
+        
+        # Warmup параметры
+        self.warmup_steps = 800  
+        self.current_step = 0    
+        self.base_lr = 0.001     
+        
+        # Инициализация начального learning rate
+        for param_group in self.optim.param_groups:
+            param_group['lr'] = 0.0 
 
-    def train(self, df: pd.DataFrame):
+    def update_lr(self):
+        """Обновляет learning rate согласно расписанию warmup"""
+        if self.current_step < self.warmup_steps:
+            # Линейное увеличение lr в течение warmup периода
+            lr = self.base_lr * (self.current_step / self.warmup_steps)
+            for param_group in self.optim.param_groups:
+                param_group['lr'] = lr
+        self.current_step += 1
+
+    def train(self, df: pd.DataFrame) -> float:
         MAX_SEQ_LEN = df["IUPAC Name"].apply(len).max()
         DS_SEQ_LEN = MAX_SEQ_LEN + 3
         smis = list(df['SMILES'])
@@ -67,8 +85,8 @@ class Trainer:
 
         ds = rme.dataset.RxnMolDataset(smis, seqs)
         dl = torch.utils.data.DataLoader(ds, batch_size=self.batch_size,
-                                        collate_fn=make_fix_len_collate(DS_SEQ_LEN), 
-                                        shuffle=True, drop_last=False)
+                                      collate_fn=make_fix_len_collate(DS_SEQ_LEN), 
+                                      shuffle=True, drop_last=False)
         losses = []
         for b in dl:
             x, y = b
@@ -77,14 +95,17 @@ class Trainer:
             with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
                 p = self.model(x, y[:, :-1])
                 loss = Loss(p, y[:, 1:])
-                loss = loss / self.grad_accum  # Нормализуем loss для аккумуляции градиентов
+                loss = loss / self.grad_accum
 
-            self.accum_losses.append(float(loss) * self.grad_accum)  # Сохраняем оригинальное значение loss
+            self.accum_losses.append(float(loss) * self.grad_accum)
             self.scaler.scale(loss).backward()
             
             self.accum_step += 1
             if self.accum_step % self.grad_accum == 0:
-                # Применяем clipping градиентов перед шагом оптимизации
+                # Обновляем learning rate перед шагом оптимизации
+                self.update_lr()
+                
+                # Применяем clipping градиентов
                 self.scaler.unscale_(self.optim)
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                 
@@ -92,13 +113,16 @@ class Trainer:
                 self.scaler.update()
                 self.optim.zero_grad()
                 
-                # Логируем усредненный loss за виртуальный батч
                 avg_loss = np.mean(self.accum_losses)
                 losses.append(avg_loss)
-                self.accum_losses = []  # Очищаем накопленные losses
+                self.accum_losses = []
 
         self.losses.extend(losses)
         return np.mean(losses) if losses else 0.0
+    
+    
+    
+    
 
     def validate(self, df: pd.DataFrame):
         self.model.eval()
@@ -140,56 +164,71 @@ class Trainer:
 
 
                 
-def train(patience=10, batch_size=256, num_epoch=10):
+def train_epoch(files: List[str], batch_size: int, epoch: int, trainer: Trainer):
+    losses = []
+    random.shuffle(files)
+    for file in files:
+        with tqdm(total=count_lines(file), desc=meta(), dynamic_ncols=True) as tq:
+            for num_batch, batch in enumerate(batch_reader(file, batch_size), start=1):
+                try:
+                    df: pd.DataFrame = pd.read_csv(StringIO(batch), delimiter=';', encoding='utf-8').dropna()
+                except Exception as exc:
+                    logging.error(exc)
+                    continue
+
+                loss: float = trainer.train(df)
+                losses.append(loss)
+                logging.info(f"Epoch {epoch}, File: {basename(file)}, Batch {num_batch}, Loss: {loss:.4f}, MeanLoss: {mean(losses):.4f}")
+                tq.set_description(meta())
+                tq.update(batch_size)
+    return losses
+
+
+def validate_and_save(model: rme, trainer: Trainer, validation_data: pd.DataFrame, epoch: int, \
+                best_val_loss: float, patience: int, epochs_without_improvement: int) -> Tuple[int, float]:
+    val_loss = trainer.validate(validation_data)
+    logging.info(f"Epoch {epoch}, Validation loss: {val_loss:.4f}")
+    if val_loss < best_val_loss:
+        best_val_loss = val_loss
+        epochs_without_improvement = 0
+        torch.save(model.state_dict(), "model.pth")
+        logging.info(f"Epoch {epoch}: New best validation loss: {best_val_loss:.4f}")
+    else:
+        epochs_without_improvement += 1
+        if epochs_without_improvement >= patience:
+            logging.info(f"Early stopping triggered! No improvement for {patience} epochs.")
+    return best_val_loss, epochs_without_improvement
+
+
+def train(patience:int=3, batch_size:int=256, num_epoch:int=10, \
+                pretrained_path:Optional[str]=None, dirname:Optional[str]=None) -> None:  
+    
     model = ChemLM(chem_encoder_params=dict(d_model=512, n_in_head=8, num_in_layers=8, shared_weights=True),
                    decoder_params=dict(d_model=512, nhead=8, dim_feedforward=4 * 512, dropout=0.1,
                                        activation=nn.functional.gelu, batch_first=True, norm_first=True, bias=True),
                    num_layers=4, vocab_size=128, chem_encoder_pretrained_path=pretrained_path)
     model.train()
-    files = [join(dirname, 'train_Compound_000000001_000500000.csv')]
-    validation_data = pd.read_csv(join('__val__', 'validation_Compound_000000001_000500000.csv'), 
+    files = [join(dirname, 'train_Compound_000000001_000500000.csv')] 
+    validation_data: pd.DataFrame = pd.read_csv(join('__val__', 'validation_Compound_000000001_000500000.csv'),
                                  delimiter=';', encoding='utf-8').dropna()
-    loss = float('inf')
+    threshold = 0.1
     best_val_loss = float('inf')
+    past_loss = float('inf')
     epochs_without_improvement = 0
+    trainer = Trainer(model) 
     for epoch in range(1, num_epoch):
-        losses = []
-        random.shuffle(files)
-        trainer = Trainer(model)
-        for file in files:
-            meta = lambda: f"{cpu()}, {ram()}, {gpu()}"
-            with tqdm(total=count_lines(file), desc=meta(), dynamic_ncols=True) as tq: 
-                for num_batch, batch in enumerate(batch_reader(file, batch_size), start=1):  
-                    try:
-                        df = pd.read_csv(StringIO(batch), delimiter=';', encoding='utf-8').dropna()
-                    except Exception as exc:
-                        logging.error(exc)
-                        continue
+        losses = train_epoch(files, batch_size, epoch, trainer)
+        mean_loss = mean(losses)
+        if mean_loss < min(threshold, past_loss):
+            past_loss = mean_loss
+            torch.save(model.state_dict(), f"model_{epoch}.pth") 
+            logging.info("BETTER!")
 
-                    loss = trainer.train(df)
-                    losses.append(loss)
-                    logging.info(f"Epoch {epoch}, File: {basename(file)}, Batch {num_batch}, Loss: {loss:.4f}, MeanLoss: {mean(losses):.4f}")
-                    tq.set_description(meta())
-                    tq.update(batch_size) 
-
-        if mean(losses) < 0.1:
-            logging.info(f"DONE")
-            torch.save(model.state_dict(), "model.pth")
+        best_val_loss, epochs_without_improvement = validate_and_save(model, trainer, validation_data, \
+                                            epoch, best_val_loss, patience, epochs_without_improvement)
+        if (epochs_without_improvement >= patience) or (best_val_loss < threshold):
+            torch.save(model.state_dict(), f"model_{epoch}.pth") 
             break
-
-        val_loss = trainer.validate(validation_data)
-        logging.info(f"Epoch {epoch}, Validation loss: {val_loss:.4f}")
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            epochs_without_improvement = 0
-            torch.save(model.state_dict(), "model.pth")
-            logging.info(f"Epoch {epoch}: New best validation loss: {best_val_loss:.4f}")
-        else:
-            epochs_without_improvement += 1
-            if epochs_without_improvement >= patience:
-                logging.info(f"Early stopping triggered! No improvement for {patience} epochs.")
-                break
-
         trainer.send_result(telegram=True, local_save=False)
 
 
@@ -197,7 +236,7 @@ if __name__ == '__main__':
     torch.cuda.empty_cache()
     try:
         os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
-        best_model_state, filename = train(), "model.pth"
+        best_model_state, filename = train(pretrained_path=pretrained_path, dirname=dirname), "model.pth"
         send_msg(f'{__file__}: Рассчеты успешно завершены', delete_after=5)
     except Exception as exc:
         base = basename(__file__)

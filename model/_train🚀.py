@@ -1,9 +1,12 @@
+from statistics import mean
 import logging
 import os
 import random
 import warnings
 from io import StringIO
-from os.path import exists, join
+from os.path import exists, join, basename
+from __features import err_wrap
+from tqdm import tqdm
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -13,6 +16,7 @@ import torch
 import torch.nn as nn
 from lithium import send_msg, send_photo
 from torch.cuda.amp import GradScaler
+from __features import *
 
 from _model import ChemLM, Loss, batch_reader, make_fix_len_collate, tokenize
 
@@ -46,6 +50,14 @@ class Trainer:
         self.model = self.model.to(device)
         self.losses = []
         self.optim = torch.optim.AdamW(self.model.parameters(), lr=0.001, weight_decay=0.01)
+        
+        # Настройки для аккумуляции градиентов
+        self.virtual_batch_size = 256  # Желаемый виртуальный размер батча
+        self.batch_size = 32           # Реальный размер батча, который помещается в память 🔥🔥🔥
+        self.grad_accum = self.virtual_batch_size // self.batch_size
+        assert self.virtual_batch_size % self.batch_size == 0, "virtual_batch_size must be divisible by batch_size"
+        self.accum_step = 0
+        self.accum_losses = []
 
     def train(self, df: pd.DataFrame):
         MAX_SEQ_LEN = df["IUPAC Name"].apply(len).max()
@@ -54,24 +66,39 @@ class Trainer:
         seqs = [tokenize(df.iloc[i]["IUPAC Name"], add_spezial_tokens=True) for i in range(df.shape[0])]
 
         ds = rme.dataset.RxnMolDataset(smis, seqs)
-        dl = torch.utils.data.DataLoader(ds, batch_size=128,
-                                         collate_fn=make_fix_len_collate(DS_SEQ_LEN), shuffle=True, drop_last=False)
+        dl = torch.utils.data.DataLoader(ds, batch_size=self.batch_size,
+                                        collate_fn=make_fix_len_collate(DS_SEQ_LEN), 
+                                        shuffle=True, drop_last=False)
         losses = []
         for b in dl:
             x, y = b
             x, y = x.to(device), y.to(device)
+            
             with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
                 p = self.model(x, y[:, :-1])
                 loss = Loss(p, y[:, 1:])
+                loss = loss / self.grad_accum  # Нормализуем loss для аккумуляции градиентов
 
-            losses.append(float(loss))
+            self.accum_losses.append(float(loss) * self.grad_accum)  # Сохраняем оригинальное значение loss
             self.scaler.scale(loss).backward()
-            self.scaler.step(self.optim)
-            self.optim.zero_grad()
-            self.scaler.update()
+            
+            self.accum_step += 1
+            if self.accum_step % self.grad_accum == 0:
+                # Применяем clipping градиентов перед шагом оптимизации
+                self.scaler.unscale_(self.optim)
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+                
+                self.scaler.step(self.optim)
+                self.scaler.update()
+                self.optim.zero_grad()
+                
+                # Логируем усредненный loss за виртуальный батч
+                avg_loss = np.mean(self.accum_losses)
+                losses.append(avg_loss)
+                self.accum_losses = []  # Очищаем накопленные losses
 
         self.losses.extend(losses)
-        return np.mean(losses)
+        return np.mean(losses) if losses else 0.0
 
     def validate(self, df: pd.DataFrame):
         self.model.eval()
@@ -80,8 +107,9 @@ class Trainer:
         smis = list(df['SMILES'])
         seqs = [tokenize(df.iloc[i]["IUPAC Name"], add_spezial_tokens=True) for i in range(df.shape[0])]
         ds = rme.dataset.RxnMolDataset(smis, seqs)
-        dl = torch.utils.data.DataLoader(ds, batch_size=128, collate_fn=make_fix_len_collate(DS_SEQ_LEN),
-                                         shuffle=False, drop_last=False)
+        dl = torch.utils.data.DataLoader(ds, batch_size=self.batch_size, 
+                                        collate_fn=make_fix_len_collate(DS_SEQ_LEN),
+                                        shuffle=False, drop_last=False)
         losses = []
         with torch.no_grad():
             for b in dl:
@@ -111,43 +139,50 @@ class Trainer:
             plt.close()
 
 
-def train(patience=10):
+                
+def train(patience=10, batch_size=256, num_epoch=10):
     model = ChemLM(chem_encoder_params=dict(d_model=512, n_in_head=8, num_in_layers=8, shared_weights=True),
                    decoder_params=dict(d_model=512, nhead=8, dim_feedforward=4 * 512, dropout=0.1,
                                        activation=nn.functional.gelu, batch_first=True, norm_first=True, bias=True),
                    num_layers=4, vocab_size=128, chem_encoder_pretrained_path=pretrained_path)
     model.train()
-    trainer = Trainer(model)
-    files = [join(dirname, f) for f in os.listdir(dirname) if f.endswith('.csv')]
-    validation_data = pd.read_csv('_validation.csv', delimiter=';', encoding='utf-8').dropna()
+    files = [join(dirname, 'train_Compound_000000001_000500000.csv')]
+    validation_data = pd.read_csv(join('__val__', 'validation_Compound_000000001_000500000.csv'), 
+                                 delimiter=';', encoding='utf-8').dropna()
     loss = float('inf')
     best_val_loss = float('inf')
-    best_model_state = None
     epochs_without_improvement = 0
-
-    for epoch in range(1, 100):
+    for epoch in range(1, num_epoch):
+        losses = []
         random.shuffle(files)
+        trainer = Trainer(model)
         for file in files:
-            for num_batch, batch in enumerate(batch_reader(file, batch_size=1e4)):  # 1e4
-                try:
-                    df = pd.read_csv(StringIO(batch), delimiter=';', encoding='utf-8').dropna()
-                except Exception as exc:
-                    logging.error(exc)
-                    continue
+            meta = lambda: f"{cpu()}, {ram()}, {gpu()}"
+            with tqdm(total=count_lines(file), desc=meta(), dynamic_ncols=True) as tq: 
+                for num_batch, batch in enumerate(batch_reader(file, batch_size), start=1):  
+                    try:
+                        df = pd.read_csv(StringIO(batch), delimiter=';', encoding='utf-8').dropna()
+                    except Exception as exc:
+                        logging.error(exc)
+                        continue
 
-                loss = trainer.train(df)
-                logging.info(f"Epoch {epoch}, File: {file}, Batch {num_batch}, Loss: {loss:.4f}")
+                    loss = trainer.train(df)
+                    losses.append(loss)
+                    logging.info(f"Epoch {epoch}, File: {basename(file)}, Batch {num_batch}, Loss: {loss:.4f}, MeanLoss: {mean(losses):.4f}")
+                    tq.set_description(meta())
+                    tq.update(batch_size) 
 
-        if loss < 0.1:
+        if mean(losses) < 0.1:
             logging.info(f"DONE")
-            return model.state_dict()
+            torch.save(model.state_dict(), "model.pth")
+            break
 
         val_loss = trainer.validate(validation_data)
         logging.info(f"Epoch {epoch}, Validation loss: {val_loss:.4f}")
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             epochs_without_improvement = 0
-            best_model_state = model.state_dict()
+            torch.save(model.state_dict(), "model.pth")
             logging.info(f"Epoch {epoch}: New best validation loss: {best_val_loss:.4f}")
         else:
             epochs_without_improvement += 1
@@ -155,12 +190,20 @@ def train(patience=10):
                 logging.info(f"Early stopping triggered! No improvement for {patience} epochs.")
                 break
 
-    trainer.send_result(telegram=True, local_save=False)
-    return best_model_state
+        trainer.send_result(telegram=True, local_save=False)
 
 
 if __name__ == '__main__':
-    best_model_state, filename = train(), "model.pth"
-    if best_model_state:
-        torch.save(best_model_state, filename)
-    send_msg(f'{__file__}: Рассчеты закончены', delete_after=5)
+    torch.cuda.empty_cache()
+    try:
+        os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+        best_model_state, filename = train(), "model.pth"
+        send_msg(f'{__file__}: Рассчеты успешно завершены', delete_after=5)
+    except Exception as exc:
+        base = basename(__file__)
+        logging.error(err_wrap(base, exc))
+        send_msg(f'{base}: Рассчеты закончены c ошибкой', delete_after=5)
+    finally:
+        torch.cuda.empty_cache()
+        if 'best_model_state' in locals():
+            del best_model_state
