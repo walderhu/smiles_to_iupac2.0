@@ -245,17 +245,17 @@ def msg(message):
         raise
 
 
-logging.basicConfig(level=logging.DEBUG, format='%(name)s: %(message)s')
-
-
 class Timer:
-    def __init__(self, name="Timer", *, max_time=None, logger=None):
+    def __init__(self, name:str="Timer", *, max_time:int=None, logger:logging.Logger=None):
         self.start_time = None
         self.max_time = max_time
         self.timed_out = False
         self.TimeoutException = self.TimeoutException
         if logger is None:
-            self.logger = logging.getLogger(name)
+            print('Логгер не передан')
+            raise ValueError("Logger not found or not provided.  A logger instance must be passed to the constructor.")
+        else:
+            self.logger = logger
 
     def _signal_handler(self, signum, frame):
         self.timed_out = True

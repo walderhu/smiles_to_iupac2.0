@@ -32,6 +32,7 @@ if not exists(pretrained_path):
 
 log_filename = 'training.log'
 logging.basicConfig(filename=log_filename, level=logging.INFO, format='%(message)s')
+logger = logging.getLogger()
 if exists(log_filename):
     with open(log_filename, 'w'):
         pass
@@ -189,7 +190,7 @@ def train_epoch(model: ChemLM, files: List[str], batch_size: int, epoch: int, tr
     for num_file, file in enumerate(files, start=1):
         with tqdm(total=count_lines(file), desc=meta(), dynamic_ncols=True) as tq:
             for num_batch, batch in enumerate(batch_reader(file, batch_size), start=1):
-                with Timer(name=f'file:{file}, num batch: {num_batch}') as time:
+                with Timer(name=f'file:{file}, num batch: {num_batch}', logger=logger) as time:
                     try:
                         df: pd.DataFrame = pd.read_csv(StringIO(batch), delimiter=';', encoding='utf-8').dropna()
                     except Exception as exc:
@@ -199,7 +200,7 @@ def train_epoch(model: ChemLM, files: List[str], batch_size: int, epoch: int, tr
                     loss: float = trainer.train(df)
                     losses.append(loss)
                     logging.info(
-                        f"Epoch {epoch}, File: {basename(file)}, Batch {num_batch}, Loss: {loss:.4f}, MeanLoss: {mean(losses):.4f}, BatchTime: {time}")
+                        f"Epoch {epoch}, File: {basename(file)}, Batch {num_batch:>4}, Loss: {loss:.4f}, MeanLoss: {mean(losses):.4f}, BatchTime: {time}")
                     tq.set_description(f'{meta()}, File {already_prepared+num_file}/{already_prepared+len(files)}')
                     tq.update(batch_size)
         torch.save(model.state_dict(), f"model_tmp.pth")
@@ -247,6 +248,7 @@ def train(patience: int = 3, batch_size: int = 256, num_epoch: int = 3,
     float('inf')
     epochs_without_improvement = 0
     trainer = Trainer(model)
+    logging.info(f'trainer current step = {trainer.current_step}') # THERE NOW
     for epoch in range(1, num_epoch):
         losses = train_epoch(model, files, batch_size, epoch, trainer)
         mean(losses)
