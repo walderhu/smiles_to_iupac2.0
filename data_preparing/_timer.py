@@ -6,12 +6,13 @@ import logging
 logging.basicConfig(level=logging.DEBUG, format='%(name)s: %(message)s')  
 
 class Timer:
-    def __init__(self, name="Timer", *, max_time=None):
+    def __init__(self, name="Timer", *, max_time=None, logger=None):
         self.start_time = None
         self.max_time = max_time
         self.timed_out = False
         self.TimeoutException = self.TimeoutException
-        self.logger = logging.getLogger(name)
+        if logger is None:
+            self.logger = logging.getLogger(name)
 
     def _signal_handler(self, signum, frame):
         self.timed_out = True
