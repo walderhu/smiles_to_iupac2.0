@@ -7,24 +7,20 @@ from io import StringIO
 from os.path import basename, exists, join
 from statistics import mean
 from typing import *
-
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import RMolEncoder as rme
 import torch
 import torch.nn as nn
-from lithium import send_msg, send_photo
 from torch.cuda.amp import GradScaler
 from tqdm import tqdm
 
-import __features
 from __features import *
-from __features import err_wrap
 from _model import ChemLM, Loss, batch_reader, make_fix_len_collate, tokenize
 
 # Мета настройка
-__features.msg(f'{__file__}: Рассчеты начались')
+send_msg(f'{__file__}: Рассчеты начались')
 
 dirname = '/home/lipatovdn/__data__'
 if not exists(dirname):
@@ -43,89 +39,23 @@ if exists(log_filename):
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 warnings.filterwarnings("ignore", category=FutureWarning)
 
+def take_dict(filename):
+    if exists(filename):
+        with open(filename, 'r') as f:
+            return json.load(f)
+    raise FileNotFoundError(f"Нет папки с обучающей выборкой по пути: {dirname}")
 
 metafilename = 'data-info.json'
-
-
-
-
-files_dict: dict
-if exists(metafilename):
-    with open(metafilename, 'r') as f:
-        files_dict = json.load(f)
-else:
-    files = [join(dirname, f) for f in os.listdir(dirname)
-             if f.endswith('.csv') and not f.startswith('_')]
-    files_dict = {file: False for file in files}
-    with open(metafilename, 'w') as f:
-        json.dump(files_dict, f)
-
+files_dict: dict = take_dict(metafilename)
+metaline_dict: dict = take_dict('lineinfo.json')
 already_prepared = sum(files_dict.values())
-
+batch_size = 256
 
 def filestatus(file, status=True):
     files_dict[file] = status
     with open(metafilename, 'w') as f:
         json.dump(files_dict, f)
 
-"""
-class Trainer:
-    def __init__(self, model: ChemLM):
-        self.model = model
-        self.scaler = GradScaler()
-        self.model.encoder.requires_grad_(False)
-        self.model = torch.compile(self.model)
-        self.model = self.model.to(device)
-        self.losses = []
-        self.optim = torch.optim.AdamW(self.model.parameters(), lr=0.001, weight_decay=0.01)
-
-        self.virtual_batch_size = 256
-        self.batch_size = 32
-        self.grad_accum = self.virtual_batch_size // self.batch_size
-        assert self.virtual_batch_size % self.batch_size == 0, "virtual_batch_size must be divisible by batch_size"
-        self.accum_step = 0
-        self.accum_losses = []
-
-    def train(self, df: pd.DataFrame) -> float:
-        MAX_SEQ_LEN = df["IUPAC Name"].apply(len).max()
-        DS_SEQ_LEN = MAX_SEQ_LEN + 3
-        smis = list(df['SMILES'])
-        seqs = [tokenize(df.iloc[i]["IUPAC Name"], add_spezial_tokens=True) for i in range(df.shape[0])]
-
-        ds = rme.dataset.RxnMolDataset(smis, seqs)
-        dl = torch.utils.data.DataLoader(ds, batch_size=self.batch_size,
-                                        collate_fn=make_fix_len_collate(DS_SEQ_LEN),
-                                        shuffle=True, drop_last=False)
-        losses = []
-        for b in dl:
-            x, y = b
-            x, y = x.to(device), y.to(device)
-
-            with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-                p = self.model(x, y[:, :-1])
-                loss = Loss(p, y[:, 1:])
-                loss = loss / self.grad_accum
-
-            self.accum_losses.append(float(loss) * self.grad_accum)
-            self.scaler.scale(loss).backward()
-
-            self.accum_step += 1
-            if self.accum_step % self.grad_accum == 0:
-                # Применяем clipping градиентов перед шагом оптимизации
-                self.scaler.unscale_(self.optim)
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-
-                self.scaler.step(self.optim)
-                self.scaler.update()
-                self.optim.zero_grad()
-                # Логируем усредненный loss за виртуальный батч
-                avg_loss = np.mean(self.accum_losses)
-                losses.append(avg_loss)
-                self.accum_losses = []  # Очищаем накопленные losses
-
-        self.losses.extend(losses)
-        return np.mean(losses) if losses else 0.0
-"""
 
 class Trainer:
     def __init__(self, model: ChemLM):
@@ -147,33 +77,29 @@ class Trainer:
 
         # Warmup параметры
         self.warmup_steps = 800
-        self.current_step = 0
         self.base_lr = 0.001
+        
+        self.total_count_lines = sum(metaline_dict.values())
+        self.total_steps = (self.total_count_lines // batch_size)
+        self.current_step = sum(metaline_dict[file] for file, prepared in files_dict.items() if prepared) // 256
 
         for param_group in self.optim.param_groups:
             param_group['lr'] = 0.0
 
-    def get_lr(self, current_step, decay_percentage=0.2, min_lr=1e-4):
-        if current_step < self.warmup_steps:
-            return self.base_lr * (current_step / self.warmup_steps)
-        else:
-            progress = (current_step - self.warmup_steps) / (total_steps - self.warmup_steps)
-            adjusted_progress = progress ** (1 / (1 + decay_percentage))
-            lr = min_lr + (self.base_lr - min_lr) * (1 + np.cos(np.pi * adjusted_progress)) * 0.5
-            return lr
 
-    def update_lr(self):
+    def update_lr(self, decay_percentage=0.2, min_lr=1e-4):
         """Learning rate: linear warmup, then exponential decay."""
         if self.current_step < self.warmup_steps:
-            lr = self.base_lr * (self.current_step / self.warmup_steps)
+            return self.base_lr * (self.current_step / self.warmup_steps)
         else:
-            decay_steps = self.current_step - self.warmup_steps
-            decay_rate = 0.95
-            lr = self.base_lr * (decay_rate ** decay_steps)
-
+            progress = (self.current_step - self.warmup_steps) / (self.total_steps - self.warmup_steps)
+            adjusted_progress = progress ** (1 / (1 + decay_percentage))
+            lr = min_lr + (self.base_lr - min_lr) * (1 + np.cos(np.pi * adjusted_progress)) * 0.5
+            
         for param_group in self.optim.param_groups:
             param_group['lr'] = lr
         self.current_step += 1
+
 
     def train(self, df: pd.DataFrame) -> float:
         MAX_SEQ_LEN = df["IUPAC Name"].apply(len).max()

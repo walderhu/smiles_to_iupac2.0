@@ -28,9 +28,7 @@ total_count_lines = sum(metaline_dict.values())
 total_steps = (total_count_lines // batch_size)
 warmup_steps = 800
 base_lr = 0.001
-
 cur_step = sum(metaline_dict[file] for file, prepared in metadict.items() if prepared) // 256
-cur_step = 0
 
 def get_lr(current_step, decay_percentage=0.2, min_lr=1e-4):
     if current_step < warmup_steps:
