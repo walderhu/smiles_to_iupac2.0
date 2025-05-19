@@ -1,7 +1,10 @@
 import difflib
 import os
 from csv import QUOTE_ALL
+from io import StringIO
 from os.path import basename, exists, join
+from statistics import mean
+from typing import *
 
 import pandas as pd
 import RMolEncoder as rme
@@ -10,20 +13,7 @@ import torch.nn as nn
 from chytorch.utils.data import collate_encoded_reactions
 from tqdm import tqdm
 
-from _model import ChemLM, Loss, make_fix_len_collate, tokenize
-
-from statistics import mean
-import os
-from io import StringIO
-from os.path import exists, join, basename
-from tqdm import tqdm
-from typing import *
-import pandas as pd
-import RMolEncoder as rme
-import torch
-import torch.nn as nn
 from __features import *
-
 from _model import ChemLM, Loss, batch_reader, make_fix_len_collate, tokenize
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -72,7 +62,6 @@ class TestModel:
         ds = rme.dataset.RxnMolDataset(smiles, [''] * len(smiles))
         return [x for x, _ in ds]
 
-
     def predict_iupac(self, smiles, max_len=None):
         if max_len is None:
             max_len = self.DS_SEQ_LEN
@@ -80,7 +69,7 @@ class TestModel:
         self.model.eval()
         try:
             x = self.encode(smiles)
-            if not x:  
+            if not x:
                 return ""
             x = collate_encoded_reactions(x).to(device)
             current_token = torch.tensor([[1]], device=device)
@@ -98,9 +87,8 @@ class TestModel:
             return iupac
         except Exception as e:
             print(f"Error processing SMILES '{smiles}': {str(e)}")
-            return ""  
-        
-    
+            return ""
+
     def run_evaluation(self, test_df: pd.DataFrame):
         MAX_SEQ_LEN = test_df["IUPAC Name"].apply(len).max()
         self.DS_SEQ_LEN = MAX_SEQ_LEN + 3
@@ -117,7 +105,6 @@ class TestModel:
         token_accuracy = metrics['token_accuracy']
         exact_accuracy = metrics['exact_accuracy']
         return loss, token_accuracy, exact_accuracy
-
 
     def run_tests(self, test_df, filename) -> None:
         filename = join(predicted_dirname, f'predicted_{basename(filename)}')
@@ -139,36 +126,36 @@ class TestModel:
         # incorrect = results_df[~results_df['Correct']]
 
 
-
 def meta(t_loss: list, t_token_accuracy: list, t_exact_accuracy: list) -> str:
     m_loss = f'{mean(t_loss):.4f}' if t_loss else '0.0000'
     m_token_accuracy = f'{mean(t_token_accuracy):.4f}' if t_token_accuracy else '0.0000'
     m_exact_accuracy = f'{mean(t_exact_accuracy):.4f}' if t_exact_accuracy else '0.0000'
     return f'Loss: {m_loss} | Token Acc: {m_token_accuracy} | Exact Acc: {m_exact_accuracy}'
 
+
 def main(filename):
     model = ChemLM(chem_encoder_params=dict(d_model=512, n_in_head=8, num_in_layers=8, shared_weights=True),
-                   decoder_params=dict(d_model=512, nhead=8, dim_feedforward=4*512, dropout=0.1,
+                   decoder_params=dict(d_model=512, nhead=8, dim_feedforward=4 * 512, dropout=0.1,
                                        activation=nn.functional.gelu, batch_first=True, norm_first=True, bias=True),
                    num_layers=4, vocab_size=128, chem_encoder_pretrained_path=pretrained_path)
-    
+
     model.load_state_dict(torch.load(filename, map_location=device))
     model.to(device)
     model.eval()
     test_data_files = [join(test_dirname, file) for file in os.listdir(test_dirname)]
     t_loss, t_token_accuracy, t_exact_accuracy = [], [], []
-    batch_size = 256    
-    tester = TestModel(model)  
-    
+    batch_size = 256
+    tester = TestModel(model)
+
     for file in test_data_files:
-        total_lines = count_lines(file)  
-        with tqdm(total=total_lines, desc=meta(t_loss, t_token_accuracy, t_exact_accuracy), 
-                 dynamic_ncols=True) as tq:
-            
+        total_lines = count_lines(file)
+        with tqdm(total=total_lines, desc=meta(t_loss, t_token_accuracy, t_exact_accuracy),
+                  dynamic_ncols=True) as tq:
+
             for num_batch, batch in enumerate(batch_reader(file, batch_size), start=1):
                 try:
                     df: pd.DataFrame = pd.read_csv(StringIO(batch), delimiter=';', encoding='utf-8').dropna()
-                    
+
                     loss, token_accuracy, exact_accuracy = tester.run_evaluation(df)
                     t_loss.append(loss)
                     t_token_accuracy.append(token_accuracy)
@@ -190,7 +177,7 @@ if __name__ == '__main__':
     if not exists(pretrained_path):
         raise FileNotFoundError(f"Предобученный файл енкодера не найден по пути: {pretrained_path}")
 
-    filename = "model.pth"
+    filename = "model_tmp.pth"
     if (filename is None) or (not exists(filename)):
         raise FileNotFoundError(f"Предобученный файл модели не найден по пути: {filename}")
 

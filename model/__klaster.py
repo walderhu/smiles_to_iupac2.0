@@ -10,11 +10,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from chython import MoleculeContainer, smiles
-from lithium import send_msg
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from sklearn.preprocessing import StandardScaler
+
 from __features import log_err_msg_wrap
 from _model import batch_reader
 
@@ -38,6 +38,8 @@ else:
     files = [join(data_dirname, f) for f in os.listdir(data_dirname)
              if f.endswith('.csv') and not f.startswith('_')]
     files_dict = {file: False for file in files}
+    with open(meta, 'w') as f:
+        json.dump(files_dict, f)
 
 
 def medianame(file, num_batch):
@@ -180,10 +182,10 @@ def main():
                 logging.error(msg)
 
         files_dict[file] = True
-        
+
         with open(meta, 'w') as f:
             json.dump(files_dict, f)
-            
+
         logging.info(f'{i} файл обработан, {basename(file)}')
 
 

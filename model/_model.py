@@ -22,7 +22,7 @@ class ChemLM(nn.Module):
             self.encoder.load_state_dict(state_dict)
 
         self.embedding = nn.Embedding(vocab_size, decoder_params["d_model"])
-        pe = self.calculate_pos_enc(4096, decoder_params["d_model"]) # 🔥 self.calculate_pos_enc(2048, ...
+        pe = self.calculate_pos_enc(4096, decoder_params["d_model"])  # 🔥 self.calculate_pos_enc(2048, ...
         self.pe = nn.parameter.Parameter(pe, requires_grad=False)
         self.decoder = nn.TransformerDecoder(nn.TransformerDecoderLayer(**decoder_params), num_layers=num_layers)
 
