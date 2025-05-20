@@ -26,6 +26,7 @@ batch_size = 256
 
 total_count_lines = sum(metaline_dict.values())
 total_steps = (total_count_lines // batch_size)
+print(f'{total_steps=}')
 warmup_steps = 800
 base_lr = 0.001
 cur_step = sum(metaline_dict[file] for file, prepared in metadict.items() if prepared) // 256
