@@ -15,11 +15,16 @@ import torch
 import torch.nn as nn
 from torch.cuda.amp import GradScaler
 from tqdm import tqdm
-
 from __features import *
 from _model import ChemLM, Loss, batch_reader, make_fix_len_collate, tokenize
 
-# Мета настройка
+
+                    ############################################################
+                    #                                                          #
+                    #                     Мета настройка                       #
+                    #                                                          #
+                    ############################################################
+                    
 send_msg(f'{__file__}: Рассчеты начались')
 
 dirname = '/home/lipatovdn/__data__'
@@ -58,6 +63,13 @@ def filestatus(file, status=True):
         json.dump(files_dict, f)
 
 
+
+                    ############################################################
+                    #                                                          #
+                    #                     Класс тренера                        #
+                    #                                                          #
+                    ############################################################
+                    
 class Trainer:
     def __init__(self, model: ChemLM):
         self.model = model
@@ -184,6 +196,14 @@ class Trainer:
             plt.close()
 
 
+
+
+                    ############################################################
+                    #                                                          #
+                    #                        Обучение                          #
+                    #                                                          #
+                    ############################################################
+                    
 def train_epoch(model: ChemLM, files: List[str], batch_size: int, epoch: int, trainer: Trainer):
     losses = []
     random.shuffle(files)
@@ -237,10 +257,7 @@ def train(patience: int = 3, batch_size: int = 256, num_epoch: int = 3,
     logging.info('Model successfully loaded!')
     logging.info(f'We continue from {already_prepared+1} file')
     model.train()
-    # files = [join(dirname, f) for f in os.listdir(dirname)]
-    # files = [join(dirname, 'train_Compound_000000001_000500000.csv')]
     files = [file for file, processed in files_dict.items() if not processed]
-
     validation_data: pd.DataFrame = pd.read_csv(join('__val__', 'validation_Compound_000000001_000500000.csv'),
                                                 delimiter=';', encoding='utf-8').dropna()
     threshold = 0.1
@@ -265,17 +282,33 @@ def train(patience: int = 3, batch_size: int = 256, num_epoch: int = 3,
         trainer.send_result(telegram=True, local_save=False)
 
 
+
+                    ############################################################
+                    #                                                          #
+                    #                       Точка входа                        #
+                    #                                                          #
+                    ############################################################
+
+
 if __name__ == '__main__':
     torch.cuda.empty_cache()
-    try:
-        os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
-        best_model_state, filename = train(pretrained_path=pretrained_path, dirname=dirname), "model.pth"
-        send_msg(f'{__file__}: Рассчеты успешно завершены', delete_after=5)
-    except Exception as exc:
-        base = basename(__file__)
-        logging.error(err_wrap(base, exc))
-        send_msg(f'{base}: Рассчеты закончены c ошибкой', delete_after=5)
-    finally:
-        torch.cuda.empty_cache()
-        if 'best_model_state' in locals():
-            del best_model_state
+    max_retries = 10  
+    for retry_count in range(1, max_retries + 1):
+        try:
+            os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+            best_model_state = train(pretrained_path=pretrained_path, dirname=dirname)
+            send_msg(f'{__file__}: Рассчеты успешно завершены')
+            break  
+        except Exception as exc:
+            base = basename(__file__)
+            logging.error(f"Attempt {retry_count}/{max_retries}. Error: {err_wrap(base, exc)}")
+            send_msg(f'{base}: Ошибка (попытка {retry_count}/{max_retries}). Перезапуск...')
+            time.sleep(10)
+        finally:
+            torch.cuda.empty_cache()
+            if 'best_model_state' in locals():
+                del best_model_state
+    
+    if retry_count >= max_retries:
+        send_msg(f'{basename(__file__)}: Достигнуто максимальное количество попыток ({max_retries}). Прекращение работы.')
+        
