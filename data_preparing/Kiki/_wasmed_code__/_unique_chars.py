@@ -42,7 +42,7 @@ class UCharHandler:
 
 ########### ИНТЕРФЕЙС ########### 
 from tqdm import tqdm
-from _send_msg import send_msg
+from Kiki._send_msg import send_msg
 import psutil
 from concurrent.futures import ProcessPoolExecutor
 
