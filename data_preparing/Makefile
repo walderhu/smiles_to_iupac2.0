@@ -1,7 +1,7 @@
 
 TRASH := __pycache__ __predicted__
 # FILES := $(shell find . -maxdepth 1 -type f -name "*.py")
-FILES := __tiffany.py 
+FILES := __tiffany.py __temp.py
 
 DEFAULT_GOAL := c
 
