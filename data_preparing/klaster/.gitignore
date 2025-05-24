@@ -1,0 +1,18 @@
+__data__
+__test__
+__train__  
+__val__
+__tokens__
+*.log
+*.md
+__pycache__
+*.png
+
+# scp -r -F C:\Users\tru60\denis\config.txt lithium:/home/lipatovdn/__secondhalf_data__ hydrogen:/home/lipatovdn/
+# scp -r -F C:\Users\tru60\denis\config.txt lithium:/home/lipatovdn/klasterisation hydrogen:/home/lipatovdn/
+
+ 
+__csv_tokens__
+__val__
+__test__
+__train__
