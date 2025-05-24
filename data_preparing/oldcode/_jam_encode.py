@@ -52,7 +52,7 @@ def handler(filename):
         
 
 if __name__ == "__main__":
-    from _send_msg import send_msg
+    from Kiki._send_msg import send_msg
     try:
         send_msg(f'Старт {basename(__file__)}', delete_after=5)
 

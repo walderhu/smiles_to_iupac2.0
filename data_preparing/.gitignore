@@ -1,7 +1,8 @@
 __*
 !__init__.py
 !__main__.py
-
+!__temp.py
+!__tiffany.py
 
 .env
 .vscode/

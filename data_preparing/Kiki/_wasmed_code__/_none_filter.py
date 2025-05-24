@@ -8,7 +8,7 @@ import os
 import pandas as pd
 import pickle
 from pandas import DataFrame
-from _send_msg import send_msg
+from Kiki._send_msg import send_msg
 from collections import Counter
 from os.path import join, abspath, basename
 from io import StringIO
