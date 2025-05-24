@@ -112,7 +112,8 @@ def main():
 
 
 if __name__ == "__main__":
-    while True:
+    max_retries = 10  
+    for retry_count in range(1, max_retries + 1):
         try:
             main()
             break
@@ -120,7 +121,11 @@ if __name__ == "__main__":
             new_time = datetime.now() + timedelta(hours=3)  
             time_str = new_time.strftime("%H:%M:%S %d.%m.%Y")
             base = basename(__file__)
-            errmsg = f"Error: {err_wrap(base, exc)}\n🕛: {time_str}"
+            errmsg = f"Attempt {retry_count}/{max_retries}. Error: {err_wrap(base, exc)}\n🕛: {time_str}"
             logging.error(errmsg)
+            send_msg(f'{base}: Ошибка (попытка {retry_count}/{max_retries}). Перезапуск...')
             print(errmsg)
             sleep(10)
+
+    if retry_count >= max_retries:
+        logging.info(f'{basename(__file__)}: Достигнуто максимальное количество попыток ({max_retries}). Прекращение работы.')
